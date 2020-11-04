@@ -14,6 +14,7 @@
 
 #include "context.h"
 #include "datatype.h"
+#include "span.h"
 
 namespace cppflow {
 
@@ -70,12 +71,12 @@ namespace cppflow {
         datatype dtype() const;
 
         /**
-         * Converts the tensor into a C++ vector
+         * Converts the tensor into a C++ span. There is no data copy on span for perfomance.
          * @tparam T The c++ type (must be equivalent to the tensor type)
-         * @return A vector representing the flat tensor
+         * @return A span representing the flat tensor
          */
         template<typename T>
-        std::vector<T> get_data() const;
+        std::span<T> get_data() const;
 
 
         ~tensor() = default;
@@ -180,6 +181,8 @@ namespace cppflow {
         r.tfe_handle = {TFE_NewTensorHandle(r.tf_tensor.get(), context::get_status()), TFE_DeleteTensorHandle};
         status_check(context::get_status());
 
+        TFE_DeleteTensorHandle(res[0]);
+
         return r;
     }
 
@@ -195,22 +198,13 @@ namespace cppflow {
     }
 
     template<typename T>
-    std::vector<T> tensor::get_data() const {
-        auto res_tensor = TFE_TensorHandleResolve(this->tfe_handle.get(), context::get_status());
-        status_check(context::get_status());
-
-        // Check tensor data is not empty
-        auto raw_data = TF_TensorData(res_tensor);
-        //this->error_check(raw_data != nullptr, "Tensor data is empty");
-
-        size_t size = TF_TensorByteSize(res_tensor) / TF_DataTypeSize(TF_TensorType(res_tensor));
+    std::span<T> tensor::get_data() const {
+        auto raw_data = TF_TensorData(this->tf_tensor.get());
+        size_t size = TF_TensorElementCount(this->tf_tensor.get());
 
         // Convert to correct type
-        const auto T_data = static_cast<T*>(raw_data);
-        std::vector<T> r(T_data, T_data + size);
-        TF_DeleteTensor(res_tensor);
-
-        return r;
+        const auto t_data = static_cast<T*>(raw_data);
+        return std::span<T>(t_data, size);
     }
 
     datatype tensor::dtype() const {
